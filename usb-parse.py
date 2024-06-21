@@ -1,10 +1,8 @@
 #!/usr/bin/python3
 
 from dataclasses import dataclass, field
+from optparse import OptionParser
 import csv
-import matplotlib
-import matplotlib.pyplot as plt
-import numpy as np
 import sys
 
 def usb_period(is_full_speed):
@@ -30,7 +28,6 @@ def usb_crc5(data):
 
 @dataclass
 class dpdm_sample:
-    cnt:     int = 0
     dp:      int = 0
     dm:      int = 0
     next_tm: float = 0
@@ -48,12 +45,20 @@ class dpdm_data:
     prev_bit:  int = None
     bytes_arr: list[int] = field(default_factory=list)
 
-if len(sys.argv) != 2:
-    print("Usage: <file.csv>")
+usage = "Usage: %prog [OPTIONS] FILE"
+parser = OptionParser(usage=usage,
+                      description="Reads CSV file with USB protocol extracted from oscilloscope by the `ds1054z` tool")
+parser.add_option("-s", "--speed", type="string", default="auto",
+                  dest="speed", help='Speed of the device. Accepts "low", "full" or "auto".')
+options, args = parser.parse_args()
+
+if len(args) == 0:
+    parser.print_help()
     sys.exit(1)
+else:
+    filename = args[0]
 
-f_input = open(sys.argv[1])
-
+f_input = open(filename)
 csv_input = csv.reader(f_input, skipinitialspace=True)
 header = next(csv_input)
 
@@ -88,14 +93,18 @@ state = UNKNOWN
 se0_cnt = 0
 
 full_speed = None
-period = None
+if options.speed == "low":
+    full_speed = False
+elif options.speed == "full":
+    full_speed = True
 
+period = None
 sample = None
 data = None
-
 prev_tm = None
 prev_dp = None
 prev_dm = None
+
 for v1, v2, v3 in csv_input:
     tm_v = float(v1)
     dp_v = float(v2)
