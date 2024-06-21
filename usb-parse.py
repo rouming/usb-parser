@@ -7,10 +7,10 @@ import matplotlib.pyplot as plt
 import numpy as np
 import sys
 
-def nr_samples_per_period(sample_period, is_full_speed):
+def usb_period(is_full_speed):
     if is_full_speed:
-        return int(1 / sample_period / 12e6)
-    return int(1 / sample_period / 1.5e6)
+        return 1 / 12e6
+    return 1 / 1.5e6
 
 def crc5(data):
     # x^5 + x^2 + 1
@@ -36,6 +36,10 @@ class dpdm_sample:
     cnt:     int = 0
     dp:      int = 0
     dm:      int = 0
+    next_tm: float = 0
+
+    def __init__(self, next_tm):
+        self.next_tm = next_tm
 
 class dpdm_byte:
     nr_bits:  int = 0
@@ -87,7 +91,7 @@ state = UNKNOWN
 se0_cnt = 0
 
 full_speed = None
-nr_samples = None
+period = None
 
 sample = None
 data = None
@@ -110,29 +114,24 @@ for v1, v2, v3 in csv_input:
 
     # Detect required number of samples per USB period
     if full_speed is not None and \
-       nr_samples is None and prev_tm is not None:
-        nr_samples = nr_samples_per_period(tm_v - prev_tm, full_speed)
+       period is None and prev_tm is not None:
+        period = usb_period(full_speed)
         state = IDLE
 
     # Detect SYNC
     if state == IDLE and (prev_dp != dp_v or prev_dm != dm_v):
         state = DETECT_SYNC
-        sample = dpdm_sample()
+        sample = dpdm_sample(tm_v + period)
         data = dpdm_data()
 
     # Oversampling and decoding
     if sample is not None:
-        sample.cnt += 1
         sample.dp  += dp_v
         sample.dm  += dm_v
 
-        print(dp_v, dm_v)
-
-        if sample.cnt >= nr_samples:
+        if tm_v >= sample.next_tm:
             dp = 1 if sample.dp > 0 else 0
             dm = 1 if sample.dm > 0 else 0
-
-            print(sample.dp, sample.dm, nr_samples)
 
             # Detect EOP or SE1
             if dp != dm:
@@ -171,7 +170,9 @@ for v1, v2, v3 in csv_input:
                         data.prev_bit = raw_bit
                     data.bytes_arr.append(data.byte.b)
                     data.byte = dpdm_byte()
-                sample = dpdm_sample()
+
+                next_tm = sample.next_tm + period
+                sample = dpdm_sample(next_tm)
 
     # Detect SYNC
     if state == DETECT_SYNC:
