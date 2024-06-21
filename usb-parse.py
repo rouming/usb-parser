@@ -12,24 +12,21 @@ def usb_period(is_full_speed):
         return 1 / 12e6
     return 1 / 1.5e6
 
-def crc5(data):
-    # x^5 + x^2 + 1
-    polynomial = 0b00101
-    # USB crc5 is initialized to all 1
-    register = 0b11111
+crc5_tbl = [0x00, 0x0b, 0x16, 0x1d, 0x05, 0x0e, 0x13, 0x18, 0x0a, 0x01,
+            0x1c, 0x17, 0x0f, 0x04, 0x19, 0x12, 0x14, 0x1f, 0x02, 0x09,
+            0x11, 0x1a, 0x07, 0x0c, 0x1e, 0x15, 0x08, 0x03, 0x1b, 0x10,
+            0x0d, 0x06]
 
-    for d in range(len(data)):
-        byte = data[d]
-        bits = range(8) if d < len(data)-1 else range(3)
-        for i in bits:
-            bit = (byte >> i) & 1
-            xor_flag = (register >> 4) & 1
-            register = (register << 1) & 0b11111
-            if bit ^ xor_flag:
-                register ^= polynomial
+def usb_crc5(data):
+    data = data ^ 0x1f
+    lsb = (data >> 1) & 0x1f
+    msb = (data >> 6) & 0x1f
 
-    # USB crc5 is inversed at output time
-    return 0b11111 - register
+    crc = 0x14 if (data & 1) != 0 else 0x00
+    crc = crc5_tbl[(lsb ^ crc)]
+    crc = crc5_tbl[(msb ^ crc)]
+
+    return crc ^ 0x1f
 
 @dataclass
 class dpdm_sample:
@@ -192,19 +189,19 @@ for v1, v2, v3 in csv_input:
 
     # We have a full packet
     if state == GOT_EOP:
-        for b in data.bytes_arr:
-            print("%x " % b, end='')
-        if len(data.bytes_arr) > 0:
-            print()
+        if len(data.bytes_arr) > 1:
+            if data.bytes_arr[1] == PID_SOF:
+                nr_frame = ((data.bytes_arr[3] & 7) << 8) | data.bytes_arr[2]
+                crc = ((data.bytes_arr[3] >> 3) & 0x1f)
+                print("SOF | NRFRAME %d | CRC5 0x%x (%s) -> " %
+                      (nr_frame, crc, "OK" if usb_crc5(nr_frame) == crc else "ERR"),
+                      end='')
 
-        ## XXX
-        if data.bytes_arr[1] == PID_SOF:
-            nr_frame = (data.bytes_arr[2] << 3) | (data.bytes_arr[3] & 7)
-            bits = []
-            for i in range(11):
-                bits.append(nr_frame & (1 << i))
-            crc = (data.bytes_arr[3] >> 3)
-            print("%x, %x, %x" % (nr_frame, crc5(bits), crc))
+            print("[", end='')
+            for i, b in enumerate(data.bytes_arr):
+                print("%x%s" % (b, (' ' if i + 1 < len(data.bytes_arr) else '')),
+                      end='')
+            print(']')
 
         state = IDLE
         sample = None
