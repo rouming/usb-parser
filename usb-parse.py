@@ -100,6 +100,8 @@ class dpdm_byte:
 class dpdm_data:
     byte:      dpdm_byte = field(default_factory=dpdm_byte)
     prev_bit:  int = None
+    nr_ones:   int = 0
+    discard:   bool = False
     bytes_arr: list[int] = field(default_factory=list)
 
 usage = "Usage: %prog [OPTIONS] FILE"
@@ -218,19 +220,45 @@ for v1, v2, v3 in csv_input:
                     # Discard everything and start over
                     data = None
                     state = IDLE
-            else:
+
+            # Do bit decoding only if not discarding the whole packet.
+            # In case of discard we wait for EOP or SE1 states and
+            # then start over.
+            elif not data.discard:
                 # Decode a bit
                 bit = raw_bit = 1 if dp > dm else 0
+                skip_stuffed_bit = False
                 if data.prev_bit is not None:
                     # Decode NRZI
                     bit = 1 if data.prev_bit == raw_bit else 0
+                    # Stuffed bit detection
+                    if bit == 1:
+                        data.nr_ones += 1
+                        if data.nr_ones == 7:
+                            print("[%f] Warning: stuffing error (7 \"ones\") detected" % tm_v)
+                            # 7.1.9.1: "If the receiver sees seven
+                            # consecutive ones anywhere in the packet,
+                            # then a bit stuffing error has occurred
+                            # and the packet should be ignored."
+                            data.discard = True
+                            continue
+                    else:
+                        if data.nr_ones == 6:
+                            skip_stuffed_bit = True
+                        data.nr_ones = 0
                     data.prev_bit = raw_bit
-                data.byte.b |= (bit << data.byte.nr_bits)
-                data.byte.nr_bits += 1
+                if not skip_stuffed_bit:
+                    # Accept bit only if it is not a stuffed bit
+                    data.byte.b |= (bit << data.byte.nr_bits)
+                    data.byte.nr_bits += 1
                 if data.byte.nr_bits == 8:
                     # Last bit of SYNC for further NRZI decoding
                     if state == DETECT_SYNC:
                         data.prev_bit = raw_bit
+                        # 7.1.9 Bit Stuffing: "The data “one” that
+                        # ends the Sync Pattern is counted as the
+                        # first one in a sequence."
+                        data.nr_ones = 1
                     data.bytes_arr.append(data.byte.b)
                     data.byte = dpdm_byte()
 
@@ -255,7 +283,7 @@ for v1, v2, v3 in csv_input:
 
     # We have a full packet
     if state == GOT_EOP:
-        if len(data.bytes_arr) > 1:
+        if not data.discard and len(data.bytes_arr) > 1:
             if data.bytes_arr[1] == PID_SOF:
                 nr_frame = ((data.bytes_arr[3] & 7) << 8) | data.bytes_arr[2]
                 crc = ((data.bytes_arr[3] >> 3) & 0x1f)
