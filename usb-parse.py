@@ -259,38 +259,49 @@ for v1, v2, v3 in csv_input:
             if data.bytes_arr[1] == PID_SOF:
                 nr_frame = ((data.bytes_arr[3] & 7) << 8) | data.bytes_arr[2]
                 crc = ((data.bytes_arr[3] >> 3) & 0x1f)
-                print("  SOF | NRFRAME %d | CRC5 0x%x (%s) | -> " %
-                      (nr_frame, crc, "OK" if usb_crc5(nr_frame) == crc else "ERR"),
+                print("%f |   SOF | NRFRAME %d | CRC5 0x%02x (%s) | -> " %
+                      (tm_v, nr_frame, crc,
+                       "OK" if usb_crc5(nr_frame) == crc else "ERR"),
                       end='')
+
             elif data.bytes_arr[1] == PID_SETUP or \
-                 data.bytes_arr[1] == PID_IN:
-                pid = "SETUP" if data.bytes_arr[1] == PID_SETUP else "IN"
+                 data.bytes_arr[1] == PID_IN or \
+                 data.bytes_arr[1] == PID_OUT:
+                pid = "SETUP" if data.bytes_arr[1] == PID_SETUP else \
+                     ("IN" if data.bytes_arr[1] == PID_IN else "OUT")
                 addrendp = ((data.bytes_arr[3] & 7) << 8) | data.bytes_arr[2]
                 addr = (data.bytes_arr[2] & 0x7f)
                 endp = ((data.bytes_arr[3] & 7) << 1) | ((data.bytes_arr[2] & 0x80) >> 7)
                 crc = ((data.bytes_arr[3] >> 3) & 0x1f)
 
-                print("%5s | ADDR %d | ENDP %d | CRC5 0x%x (%s) | -> " %
-                      (pid, addr, endp, crc, "OK" if usb_crc5(addrendp) == crc else "ERR"),
+                print("%f | %5s | ADDR %d | ENDP %d | CRC5 0x%02x (%s) | -> " %
+                      (tm_v, pid, addr, endp, crc,
+                       "OK" if usb_crc5(addrendp) == crc else "ERR"),
                       end='')
 
-            elif data.bytes_arr[1] == PID_DATA0:
+            elif data.bytes_arr[1] == PID_DATA0 or \
+                 data.bytes_arr[1] == PID_DATA1:
+                datanum = 0 if data.bytes_arr[1] == PID_DATA0 else 1
                 crc = (data.bytes_arr[-1] << 8) | data.bytes_arr[-2]
-                data0 = " ".join(["%x" % v for v in data.bytes_arr[2:-2]])
+                data0or1 = " ".join(["%02x" % v for v in data.bytes_arr[2:-2]])
 
-                print("DATA0 | %s | CRC16 0x%x (%s) | -> " %
-                      (data0, crc, "OK" if usb_crc16(data.bytes_arr[2:-2]) == crc else "ERR"),
+                print("%f | DATA%d | %s | CRC16 0x%04x (%s) | -> " %
+                      (tm_v, datanum, data0or1, crc,
+                       "OK" if usb_crc16(data.bytes_arr[2:-2]) == crc else "ERR"),
                       end='')
 
             elif data.bytes_arr[1] == PID_ACK:
-                print("  ACK | -> ", end='')
+                print("%f |   ACK | -> " % (tm_v), end='')
+
+            elif data.bytes_arr[1] == PID_NAK:
+                print("%f |   NAK | -> " % (tm_v), end='')
 
             elif data.bytes_arr[1] == PID_STALL:
-                print("STALL | -> ", end='')
+                print("%f | STALL | -> " % (tm_v), end='')
 
             print("[", end='')
             for i, b in enumerate(data.bytes_arr):
-                print("%x%s" % (b, (' ' if i + 1 < len(data.bytes_arr) else '')),
+                print("%02x%s" % (b, (' ' if i + 1 < len(data.bytes_arr) else '')),
                       end='')
             print(']')
 
