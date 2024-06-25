@@ -97,7 +97,7 @@ class dpdm_byte:
     b:        int = 0
 
 @dataclass
-class dpdm_data:
+class dpdm_pkt:
     byte:      dpdm_byte = field(default_factory=dpdm_byte)
     prev_bit:  int = None
     nr_ones:   int = 0
@@ -159,7 +159,7 @@ elif options.speed == "full":
 
 period = None
 sample = None
-data = None
+pkt = None
 prev_tm = None
 prev_dp = None
 prev_dm = None
@@ -187,7 +187,7 @@ for v1, v2, v3 in csv_input:
     if state == IDLE and (prev_dp != dp_v or prev_dm != dm_v):
         state = DETECT_SYNC
         sample = dpdm_sample(tm_v + period)
-        data = dpdm_data()
+        pkt = dpdm_pkt()
 
     # Oversampling and decoding
     if sample is not None:
@@ -218,124 +218,124 @@ for v1, v2, v3 in csv_input:
                 sample = None
                 if state == GOT_SE1:
                     # Discard everything and start over
-                    data = None
+                    pkt = None
                     state = IDLE
 
             # Do bit decoding only if not discarding the whole packet.
             # In case of discard we wait for EOP or SE1 states and
             # then start over.
-            elif not data.discard:
+            elif not pkt.discard:
                 # Decode a bit
                 bit = raw_bit = 1 if dp > dm else 0
                 skip_stuffed_bit = False
-                if data.prev_bit is not None:
+                if pkt.prev_bit is not None:
                     # Decode NRZI
-                    bit = 1 if data.prev_bit == raw_bit else 0
+                    bit = 1 if pkt.prev_bit == raw_bit else 0
                     # Stuffed bit detection
                     if bit == 1:
-                        data.nr_ones += 1
-                        if data.nr_ones == 7:
+                        pkt.nr_ones += 1
+                        if pkt.nr_ones == 7:
                             print("[%f] Warning: stuffing error (7 \"ones\") detected" % tm_v)
                             # 7.1.9.1: "If the receiver sees seven
                             # consecutive ones anywhere in the packet,
                             # then a bit stuffing error has occurred
                             # and the packet should be ignored."
-                            data.discard = True
+                            pkt.discard = True
                             continue
                     else:
-                        if data.nr_ones == 6:
+                        if pkt.nr_ones == 6:
                             skip_stuffed_bit = True
-                        data.nr_ones = 0
-                    data.prev_bit = raw_bit
+                        pkt.nr_ones = 0
+                    pkt.prev_bit = raw_bit
                 if not skip_stuffed_bit:
                     # Accept bit only if it is not a stuffed bit
-                    data.byte.b |= (bit << data.byte.nr_bits)
-                    data.byte.nr_bits += 1
-                if data.byte.nr_bits == 8:
+                    pkt.byte.b |= (bit << pkt.byte.nr_bits)
+                    pkt.byte.nr_bits += 1
+                if pkt.byte.nr_bits == 8:
                     # Last bit of SYNC for further NRZI decoding
                     if state == DETECT_SYNC:
-                        data.prev_bit = raw_bit
+                        pkt.prev_bit = raw_bit
                         # 7.1.9 Bit Stuffing: "The data “one” that
                         # ends the Sync Pattern is counted as the
                         # first one in a sequence."
-                        data.nr_ones = 1
-                    data.bytes_arr.append(data.byte.b)
-                    data.byte = dpdm_byte()
+                        pkt.nr_ones = 1
+                    pkt.bytes_arr.append(pkt.byte.b)
+                    pkt.byte = dpdm_byte()
 
                 next_tm = sample.next_tm + period
                 sample = dpdm_sample(next_tm)
 
     # Detect SYNC
     if state == DETECT_SYNC:
-        if len(data.bytes_arr) == 1:
-            sync = data.bytes_arr[0]
+        if len(pkt.bytes_arr) == 1:
+            sync = pkt.bytes_arr[0]
             if full_speed and sync == FS_SYNC:
-                data.byte = dpdm_byte()
+                pkt.byte = dpdm_byte()
                 state = RECEIVE
             elif not full_speed and sync == LS_SYNC:
-                data.byte = dpdm_byte()
+                pkt.byte = dpdm_byte()
                 state = RECEIVE
             else:
                 # Incorrect sync so start over
                 state = IDLE
                 sample = None
-                data = None
+                pkt = None
 
     # We have a full packet
     if state == GOT_EOP:
-        if not data.discard and len(data.bytes_arr) > 1:
-            if data.bytes_arr[1] == PID_SOF:
-                nr_frame = ((data.bytes_arr[3] & 7) << 8) | data.bytes_arr[2]
-                crc = ((data.bytes_arr[3] >> 3) & 0x1f)
+        if not pkt.discard and len(pkt.bytes_arr) > 1:
+            if pkt.bytes_arr[1] == PID_SOF:
+                nr_frame = ((pkt.bytes_arr[3] & 7) << 8) | pkt.bytes_arr[2]
+                crc = ((pkt.bytes_arr[3] >> 3) & 0x1f)
                 print("%f |   SOF | NRFRAME %d | CRC5 0x%02x (%s) | -> " %
                       (tm_v, nr_frame, crc,
                        "OK" if usb_crc5(nr_frame) == crc else "ERR"),
                       end='')
 
-            elif data.bytes_arr[1] == PID_SETUP or \
-                 data.bytes_arr[1] == PID_IN or \
-                 data.bytes_arr[1] == PID_OUT:
-                pid = "SETUP" if data.bytes_arr[1] == PID_SETUP else \
-                     ("IN" if data.bytes_arr[1] == PID_IN else "OUT")
-                addrendp = ((data.bytes_arr[3] & 7) << 8) | data.bytes_arr[2]
-                addr = (data.bytes_arr[2] & 0x7f)
-                endp = ((data.bytes_arr[3] & 7) << 1) | ((data.bytes_arr[2] & 0x80) >> 7)
-                crc = ((data.bytes_arr[3] >> 3) & 0x1f)
+            elif pkt.bytes_arr[1] == PID_SETUP or \
+                 pkt.bytes_arr[1] == PID_IN or \
+                 pkt.bytes_arr[1] == PID_OUT:
+                pid = "SETUP" if pkt.bytes_arr[1] == PID_SETUP else \
+                     ("IN" if pkt.bytes_arr[1] == PID_IN else "OUT")
+                addrendp = ((pkt.bytes_arr[3] & 7) << 8) | pkt.bytes_arr[2]
+                addr = (pkt.bytes_arr[2] & 0x7f)
+                endp = ((pkt.bytes_arr[3] & 7) << 1) | ((pkt.bytes_arr[2] & 0x80) >> 7)
+                crc = ((pkt.bytes_arr[3] >> 3) & 0x1f)
 
                 print("%f | %5s | ADDR %d | ENDP %d | CRC5 0x%02x (%s) | -> " %
                       (tm_v, pid, addr, endp, crc,
                        "OK" if usb_crc5(addrendp) == crc else "ERR"),
                       end='')
 
-            elif data.bytes_arr[1] == PID_DATA0 or \
-                 data.bytes_arr[1] == PID_DATA1:
-                datanum = 0 if data.bytes_arr[1] == PID_DATA0 else 1
-                crc = (data.bytes_arr[-1] << 8) | data.bytes_arr[-2]
-                data0or1 = " ".join(["%02x" % v for v in data.bytes_arr[2:-2]])
+            elif pkt.bytes_arr[1] == PID_DATA0 or \
+                 pkt.bytes_arr[1] == PID_DATA1:
+                datanum = 0 if pkt.bytes_arr[1] == PID_DATA0 else 1
+                crc = (pkt.bytes_arr[-1] << 8) | pkt.bytes_arr[-2]
+                data0or1 = " ".join(["%02x" % v for v in pkt.bytes_arr[2:-2]])
 
                 print("%f | DATA%d | %s | CRC16 0x%04x (%s) | -> " %
                       (tm_v, datanum, data0or1, crc,
-                       "OK" if usb_crc16(data.bytes_arr[2:-2]) == crc else "ERR"),
+                       "OK" if usb_crc16(pkt.bytes_arr[2:-2]) == crc else "ERR"),
                       end='')
 
-            elif data.bytes_arr[1] == PID_ACK:
+            elif pkt.bytes_arr[1] == PID_ACK:
                 print("%f |   ACK | -> " % (tm_v), end='')
 
-            elif data.bytes_arr[1] == PID_NAK:
+            elif pkt.bytes_arr[1] == PID_NAK:
                 print("%f |   NAK | -> " % (tm_v), end='')
 
-            elif data.bytes_arr[1] == PID_STALL:
+            elif pkt.bytes_arr[1] == PID_STALL:
                 print("%f | STALL | -> " % (tm_v), end='')
 
             print("[", end='')
-            for i, b in enumerate(data.bytes_arr):
-                print("%02x%s" % (b, (' ' if i + 1 < len(data.bytes_arr) else '')),
+            for i, b in enumerate(pkt.bytes_arr):
+                print("%02x%s" % (b, (' ' if i + 1 < len(pkt.bytes_arr) else '')),
                       end='')
             print(']')
 
         state = IDLE
         sample = None
-        data = None
+        pkt = None
 
     prev_tm = tm_v
     prev_dp = dp_v
