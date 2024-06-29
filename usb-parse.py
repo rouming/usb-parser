@@ -121,8 +121,8 @@ f_input = open(filename)
 csv_input = csv.reader(f_input, skipinitialspace=True)
 header = next(csv_input)
 
-FS_SYNC = 0x2a
-LS_SYNC = 0xd5
+FS_SYNC   = 0x2a
+LS_SYNC   = 0xd5
 
 PID_OUT   = 0xe1
 PID_IN    = 0x69
@@ -134,9 +134,6 @@ PID_ACK   = 0xd2
 PID_NAK   = 0x5a
 PID_STALL = 0x1e
 PID_PRE   = 0x3c
-
-SE0 = -1
-SE1 =  2
 
 LOW  = -1
 HIGH =  1
