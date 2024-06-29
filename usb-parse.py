@@ -20,6 +20,7 @@
 #
 from dataclasses import dataclass, field
 from optparse import OptionParser
+import gzip
 import csv
 import sys
 
@@ -106,7 +107,7 @@ class dpdm_pkt:
 
 usage = "Usage: %prog [OPTIONS] FILE"
 parser = OptionParser(usage=usage,
-                      description="Reads CSV file with USB protocol extracted from oscilloscope by the `ds1054z` tool")
+                      description="Reads CSV file (can be gzipped) with USB protocol extracted from oscilloscope by the `ds1054z` tool")
 parser.add_option("-s", "--speed", type="string", default="auto",
                   dest="speed", help='Speed of the device. Accepts "low", "full" or "auto".')
 options, args = parser.parse_args()
@@ -117,7 +118,10 @@ if len(args) == 0:
 else:
     filename = args[0]
 
-f_input = open(filename)
+if filename.endswith('.gz'):
+    f_input = gzip.open(filename, 'rt')
+else:
+    f_input = open(filename)
 csv_input = csv.reader(f_input, skipinitialspace=True)
 header = next(csv_input)
 
